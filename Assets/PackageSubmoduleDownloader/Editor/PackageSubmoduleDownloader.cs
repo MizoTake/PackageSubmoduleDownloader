@@ -23,9 +23,6 @@ namespace PackageSubmoduleDownloader
         private static string PackageCachePath => $"{UnityDirectoryPath}/Library/PackageCache";
         private static string TempDirectoryPath = $"{UnityDirectoryPath}/Temp";
 
-        // uiとエラーハンドリング
-        // openupm登録したい
-
         [MenuItem("Assets/Package Submodule Downloader")]
         public static async Task Execute()
         {
