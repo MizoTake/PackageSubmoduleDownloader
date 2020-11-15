@@ -1,5 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -8,6 +7,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
+using Debug = UnityEngine.Debug;
 
 namespace PackageSubmoduleDownloader
 {
@@ -45,7 +45,7 @@ namespace PackageSubmoduleDownloader
                 {
                     var directoryName = url.Split('/').Last();
                     var tempDirectory = $"{TempDirectoryPath}/{directoryName}";
-                    DownloadRepositoryZip(url, $"{TempDirectoryPath}/{directoryName}");
+                    await DownloadRepositoryZipAsync(url, $"{TempDirectoryPath}/{directoryName}");
                     UnZip($"{tempDirectory}.zip");
                     foreach (var subModuleDirectory in submoduleDirectories)
                     {
@@ -83,7 +83,7 @@ namespace PackageSubmoduleDownloader
                 var readme = raedmeFile.ReadToEnd().Split('\n');
                 var urlLine = readme.FirstOrDefault(x => x.StartsWith("    \"com."));
                 if (urlLine == null) return "";
-                // e.g.) `Window` -> `Package Manager` -> `Add package from git URL` and paste `github url`.
+                // e.g.)    "com.example.package": "https://github.com/example/package",
                 return urlLine.Split('"')[3].Split('?').First().Replace(".git", "");
             }
         }
@@ -120,16 +120,16 @@ namespace PackageSubmoduleDownloader
             return fileValue.Where(x => x.StartsWith("	url =")).Select(x => x.Replace("	url = ", "").Replace(".git", ""));
         }
 
-        private static async void DownloadRepositoryZip(string url, string downloadPath)
+        private static async Task DownloadRepositoryZipAsync(string url, string downloadPath)
         {
             using (var client = new WebClient())
             {
-                var lastVersion = await GetLastTag($"{url}/releases/latest/download");
+                var lastVersion = await GetLastTagAsync($"{url}/releases/latest/download");
                 client.DownloadFile($"{url}/archive/{lastVersion}.zip",  $"{downloadPath}.zip");
             }
         }
         
-        private static async Task<string> GetLastTag(string url)
+        private static async Task<string> GetLastTagAsync(string url)
         {
             var client = new HttpClient();
             var response = await client.GetAsync(url);
@@ -146,19 +146,39 @@ namespace PackageSubmoduleDownloader
         
         private static void UnZip(string zipPath)
         {
+            var outputPath = zipPath.Replace(".zip", "");
+#if UNITY_EDITOR_WIN
             var unityEditorDirectory = AppDomain.CurrentDomain.BaseDirectory;
             var sevenZipPath = $"{unityEditorDirectory}/Data/Tools/7z.exe";
-            var outputPath = zipPath.Replace(".zip", "");
-            new Process
+            var fileName = $"\"{sevenZipPath}\"";
+            var arguments = $"x \"{zipPath}\" -o\"{outputPath}\" -r";
+#else
+            var fileName = "unzip";
+            var arguments = $"\"{zipPath}\" -d \"{outputPath}\"";
+#endif
+            var process = new Process
             {
                 StartInfo =
                 {
-                    FileName = $"\"{sevenZipPath}\"",
-                    Arguments = $"x \"{zipPath}\" -o\"{outputPath}\" -r",
+                    FileName = fileName,
+                    Arguments = arguments,
                     UseShellExecute = false,
-                    CreateNoWindow = true
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
                 }
-            }.Start();
+            };
+            process.OutputDataReceived += (sender, args) => {
+                if (!string.IsNullOrEmpty(args.Data)) {
+                    Debug.Log(args.Data);
+                }
+            };
+            process.ErrorDataReceived += (sender, args) => {
+                if (!string.IsNullOrEmpty(args.Data)) {
+                    Debug.LogError(args.Data);
+                }
+            };
+            process.Start();
         }
         
         private static void DirectoryCopy(string sourceDirName, string destDirName)
