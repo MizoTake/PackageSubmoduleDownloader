@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -13,40 +14,57 @@ namespace PackageSubmoduleDownloader
 {
     public class PackageSubmoduleDownloader
     {
-        
+
+        private static float progress;
+        private static float per = 1;
         private static readonly List<string> submoduleDirectories = new List<string>();
 
         private static string UnityDirectoryPath = $"{Application.dataPath}/..";
         private static string PackageCachePath => $"{UnityDirectoryPath}/Library/PackageCache";
         private static string TempDirectoryPath = $"{UnityDirectoryPath}/Temp";
-        
+
         // uiとエラーハンドリング
         // openupm登録したい
 
         [MenuItem("Assets/Package Submodule Downloader")]
-        public static async Task DownloadSubmodule()
+        public static async Task Execute()
+        {
+            progress = 0.01f;
+            EditorUtility.DisplayProgressBar(nameof(PackageSubmoduleDownloader), MethodBase.GetCurrentMethod().Name, progress / per);
+            await DownloadSubmoduleAsync();
+            progress += 1 - progress;
+            AssetDatabase.Refresh();
+            EditorUtility.ClearProgressBar();
+        }
+        
+        
+        public static async Task DownloadSubmoduleAsync()
         {
             var directories = Directory.GetDirectories(PackageCachePath);
+            per = directories.Length;
             foreach (var directory in directories)
             {
                 submoduleDirectories.Clear();
                 SearchEmptyDirectory(directory);
                 var isExitsSubModule = submoduleDirectories.Count != 0;
                 if (!isExitsSubModule) continue;
+                progress += 0.3f;
                 
                 var githubUrl = GetGitHubUrl(directory);
                 var repositoryName = githubUrl.Split('/').Last();
                 var downloadPath = $"{TempDirectoryPath}/{repositoryName}";
                 var gitmoduleString = await GitSubmodulesAsync(githubUrl, downloadPath);
                 if (gitmoduleString == "") continue;
-                
+                progress += 0.3f;
+
                 var submoduleUrls = ParseUrls(gitmoduleString);
+                var per = submoduleUrls.Count();
                 foreach (var url in submoduleUrls)
                 {
                     var directoryName = url.Split('/').Last();
                     var tempDirectory = $"{TempDirectoryPath}/{directoryName}";
                     await DownloadRepositoryZipAsync(url, $"{TempDirectoryPath}/{directoryName}");
-                    UnZip($"{tempDirectory}.zip");
+                    await UnZipAsync($"{tempDirectory}.zip");
                     foreach (var subModuleDirectory in submoduleDirectories)
                     {
                         var isTargetDirecotry = subModuleDirectory.Contains(directoryName);
@@ -56,6 +74,7 @@ namespace PackageSubmoduleDownloader
                             DirectoryCopy(sourceDirectory, subModuleDirectory);
                         }
                     }
+                    progress += 0.3f / per;
                 }
             }
         }
@@ -144,11 +163,12 @@ namespace PackageSubmoduleDownloader
             return response.RequestMessage.RequestUri.ToString().Split('/').Last();
         }
         
-        private static void UnZip(string zipPath)
+        private static Task<int> UnZipAsync(string zipPath)
         {
+            var completionSource = new TaskCompletionSource<int>();
             var outputPath = zipPath.Replace(".zip", "");
 #if UNITY_EDITOR_WIN
-            var unityEditorDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            var unityEditorDirectory = System.AppDomain.CurrentDomain.BaseDirectory;
             var sevenZipPath = $"{unityEditorDirectory}/Data/Tools/7z.exe";
             var fileName = $"\"{sevenZipPath}\"";
             var arguments = $"x \"{zipPath}\" -o\"{outputPath}\" -r";
@@ -166,7 +186,14 @@ namespace PackageSubmoduleDownloader
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true
-                }
+                },
+                EnableRaisingEvents = true
+            };
+            
+            process.Exited += (sender, args) =>
+            {
+                completionSource.SetResult(process.ExitCode);
+                process.Dispose();
             };
             process.OutputDataReceived += (sender, args) => {
                 if (!string.IsNullOrEmpty(args.Data)) {
@@ -179,6 +206,7 @@ namespace PackageSubmoduleDownloader
                 }
             };
             process.Start();
+            return completionSource.Task;
         }
         
         private static void DirectoryCopy(string sourceDirName, string destDirName)
