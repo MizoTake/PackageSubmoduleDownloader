@@ -4,7 +4,6 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
-using System.Reflection;
 using System.Threading.Tasks;
 using UnityEditor;
 using UnityEngine;
@@ -26,12 +25,20 @@ namespace PackageSubmoduleDownloader
         [MenuItem("Assets/Package Submodule Downloader")]
         public static async Task Execute()
         {
-            progress = 0.01f;
-            EditorUtility.DisplayProgressBar(nameof(PackageSubmoduleDownloader), MethodBase.GetCurrentMethod().Name, progress / per);
+            AssetDatabase.DisallowAutoRefresh();
+            progress = 0;
+            UpdateProgressBar(0.01f, nameof(Execute));
             await DownloadSubmoduleAsync();
             progress += 1 - progress;
+            AssetDatabase.AllowAutoRefresh();
             AssetDatabase.Refresh();
             EditorUtility.ClearProgressBar();
+        }
+
+        private static void UpdateProgressBar(float addProgress, string info)
+        {
+            progress += addProgress;
+            EditorUtility.DisplayProgressBar(nameof(PackageSubmoduleDownloader), info, progress / per);
         }
         
         
@@ -45,14 +52,14 @@ namespace PackageSubmoduleDownloader
                 SearchEmptyDirectory(directory);
                 var isExitsSubModule = submoduleDirectories.Count != 0;
                 if (!isExitsSubModule) continue;
-                progress += 0.3f;
-                
+                UpdateProgressBar(0.3f, nameof(GetGitHubUrl));
+
                 var githubUrl = GetGitHubUrl(directory);
                 var repositoryName = githubUrl.Split('/').Last();
                 var downloadPath = $"{TempDirectoryPath}/{repositoryName}";
                 var gitmoduleString = await GitSubmodulesAsync(githubUrl, downloadPath);
                 if (gitmoduleString == "") continue;
-                progress += 0.3f;
+                UpdateProgressBar(0.3f, nameof(ParseUrls));
 
                 var submoduleUrls = ParseUrls(gitmoduleString);
                 var per = submoduleUrls.Count();
@@ -68,10 +75,11 @@ namespace PackageSubmoduleDownloader
                         if (isTargetDirecotry)
                         {
                             var sourceDirectory = Directory.GetDirectories(tempDirectory).First();
-                            DirectoryCopy(sourceDirectory, subModuleDirectory);
+                            Directory.Delete(subModuleDirectory);
+                            Directory.Move(sourceDirectory, subModuleDirectory);
                         }
                     }
-                    progress += 0.3f / per;
+                    UpdateProgressBar(0.3f / per, nameof(Directory.Move));
                 }
             }
         }
@@ -204,26 +212,6 @@ namespace PackageSubmoduleDownloader
             };
             process.Start();
             return completionSource.Task;
-        }
-        
-        private static void DirectoryCopy(string sourceDirName, string destDirName)
-        {
-            var directoryInfo = new DirectoryInfo(sourceDirName);
-            var directoryInfos = directoryInfo.GetDirectories();
-            Directory.CreateDirectory(destDirName);
-
-            var files = directoryInfo.GetFiles();
-            foreach (var file in files)
-            {
-                var tempPath = Path.Combine(destDirName, file.Name);
-                file.CopyTo(tempPath, false);
-            }
-
-            foreach (var directory in directoryInfos)
-            {
-                var tempPath = Path.Combine(destDirName, directory.Name);
-                DirectoryCopy(directory.FullName, tempPath);
-            }
         }
     }
 }
