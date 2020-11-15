@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -27,20 +28,21 @@ namespace PackageSubmoduleDownloader
         {
             AssetDatabase.DisallowAutoRefresh();
             progress = 0;
-            UpdateProgressBar(0.01f, nameof(Execute));
+            UpdateProgressBar(0.1f, nameof(Execute));
             await DownloadSubmoduleAsync();
-            progress += 1 - progress;
-            AssetDatabase.AllowAutoRefresh();
             AssetDatabase.Refresh();
+            UpdateProgressBar(1 - progress, "Finish");
+            AssetDatabase.AllowAutoRefresh();
             EditorUtility.ClearProgressBar();
         }
-
+        
         private static void UpdateProgressBar(float addProgress, string info)
         {
+            if (progress + addProgress > 0.9) addProgress = 0;
             progress += addProgress;
+            Debug.Log($"[{nameof(PackageSubmoduleDownloader)}] {info} : {progress}");
             EditorUtility.DisplayProgressBar(nameof(PackageSubmoduleDownloader), info, progress / per);
         }
-        
         
         public static async Task DownloadSubmoduleAsync()
         {
@@ -68,18 +70,15 @@ namespace PackageSubmoduleDownloader
                     var directoryName = url.Split('/').Last();
                     var tempDirectory = $"{TempDirectoryPath}/{directoryName}";
                     await DownloadRepositoryZipAsync(url, $"{TempDirectoryPath}/{directoryName}");
-                    await UnZipAsync($"{tempDirectory}.zip");
-                    foreach (var subModuleDirectory in submoduleDirectories)
+                    UpdateProgressBar(0.1f / per, nameof(DownloadRepositoryZipAsync));
+                    foreach (var subModuleDirectory in from subModuleDirectory in submoduleDirectories let isTargetDirecotry = subModuleDirectory.Contains(directoryName) where isTargetDirecotry select subModuleDirectory)
                     {
-                        var isTargetDirecotry = subModuleDirectory.Contains(directoryName);
-                        if (isTargetDirecotry)
-                        {
-                            var sourceDirectory = Directory.GetDirectories(tempDirectory).First();
-                            Directory.Delete(subModuleDirectory);
-                            Directory.Move(sourceDirectory, subModuleDirectory);
-                        }
+                        await UnZipAsync($"{tempDirectory}.zip");
+                        UpdateProgressBar(0.1f / per, nameof(UnZipAsync));
+                        var source = Directory.GetDirectories(tempDirectory).First();
+                        await DirectoryMoveAsync(source, subModuleDirectory);
                     }
-                    UpdateProgressBar(0.3f / per, nameof(Directory.Move));
+                    UpdateProgressBar(0.1f / per, nameof(DirectoryMoveAsync));
                 }
             }
         }
@@ -146,13 +145,19 @@ namespace PackageSubmoduleDownloader
 
         private static async Task DownloadRepositoryZipAsync(string url, string downloadPath)
         {
+            var completionSource = new TaskCompletionSource<TaskStatus>();
             using (var client = new WebClient())
             {
                 var lastVersion = await GetLastTagAsync($"{url}/releases/latest/download");
-                client.DownloadFile($"{url}/archive/{lastVersion}.zip",  $"{downloadPath}.zip");
+                client.DownloadFileCompleted += (sender, args) =>
+                {
+                    completionSource.SetResult(TaskStatus.RanToCompletion);
+                };
+                client.DownloadFileAsync(new Uri($"{url}/archive/{lastVersion}.zip"),  $"{downloadPath}.zip");
             }
+            await completionSource.Task;
         }
-        
+
         private static async Task<string> GetLastTagAsync(string url)
         {
             var client = new HttpClient();
@@ -171,7 +176,8 @@ namespace PackageSubmoduleDownloader
         private static Task<int> UnZipAsync(string zipPath)
         {
             var completionSource = new TaskCompletionSource<int>();
-            var outputPath = zipPath.Replace(".zip", "");
+            var contentName = zipPath.Replace(".zip", "").Split('/').Last();
+            var outputPath = $"{TempDirectoryPath}/{contentName}";
 #if UNITY_EDITOR_WIN
             var unityEditorDirectory = System.AppDomain.CurrentDomain.BaseDirectory;
             var sevenZipPath = $"{unityEditorDirectory}/Data/Tools/7z.exe";
@@ -181,6 +187,7 @@ namespace PackageSubmoduleDownloader
             var fileName = "unzip";
             var arguments = $"\"{zipPath}\" -d \"{outputPath}\"";
 #endif
+            if (Directory.Exists(outputPath)) Directory.Delete(outputPath, true);
             var process = new Process
             {
                 StartInfo =
@@ -212,6 +219,28 @@ namespace PackageSubmoduleDownloader
             };
             process.Start();
             return completionSource.Task;
+        }
+        
+        private static async Task DirectoryMoveAsync(string sourceDirectory, string destDirectory)
+        {
+            var sourceInfo = new DirectoryInfo(sourceDirectory);
+
+            var directories = sourceInfo.GetDirectories();
+            Directory.CreateDirectory(destDirectory);
+            
+            var files = sourceInfo.GetFiles();
+            foreach (var file in files)
+            {
+                var destFileName = Path.Combine(destDirectory, file.Name);
+
+                File.Move(file.FullName, destFileName);
+            }
+
+            foreach (var directory in directories)
+            {
+                var dest = Path.Combine(destDirectory, directory.Name);
+                await DirectoryMoveAsync(directory.FullName, dest);
+            }
         }
     }
 }
