@@ -1,0 +1,16 @@
+
+{
+    "name": "com.mizotake.packagesubmoduledownloader",
+    "version": "0.9.0",
+    "displayName": "PackageSubmoduleDownloader",
+    "description": "Search the directory where the submodule might be located and download it on github",
+    "repositoryName": "PackageSubmoduleDownloader",
+    "author": {
+      "name": "MizoTake",
+      "email": "mizotake123@gmail.com",
+      "url": "https://github.com/MizoTake/PackageSubmoduleDownloader",
+      "github": "MizoTake",
+      "twitter": "OrangeGKeeper"
+    },
+    "type": "library"
+  }
