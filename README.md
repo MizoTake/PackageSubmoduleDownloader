@@ -1,0 +1,3 @@
+# Package Submodule Downloader
+
+upmでインストールされたPackageにあるsubmoduleと思われるディレクトリを見つけてsumobuleの最新版を持ってくるEditor拡張
