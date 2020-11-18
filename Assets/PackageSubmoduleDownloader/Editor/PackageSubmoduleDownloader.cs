@@ -76,9 +76,9 @@ namespace PackageSubmoduleDownloader
                         await UnZipAsync($"{tempDirectory}.zip");
                         UpdateProgressBar(0.1f / per, nameof(UnZipAsync));
                         var source = Directory.GetDirectories(tempDirectory).First();
-                        await DirectoryMoveAsync(source, subModuleDirectory);
+                        DirectoryMove(source, subModuleDirectory);
                     }
-                    UpdateProgressBar(0.1f / per, nameof(DirectoryMoveAsync));
+                    UpdateProgressBar(0.1f / per, nameof(DirectoryMove));
                 }
             }
         }
@@ -221,7 +221,7 @@ namespace PackageSubmoduleDownloader
             return completionSource.Task;
         }
         
-        private static async Task DirectoryMoveAsync(string sourceDirectory, string destDirectory)
+        private static void DirectoryMove(string sourceDirectory, string destDirectory)
         {
             var sourceInfo = new DirectoryInfo(sourceDirectory);
 
@@ -239,7 +239,7 @@ namespace PackageSubmoduleDownloader
             foreach (var directory in directories)
             {
                 var dest = Path.Combine(destDirectory, directory.Name);
-                await DirectoryMoveAsync(directory.FullName, dest);
+                DirectoryMove(directory.FullName, dest);
             }
         }
     }
